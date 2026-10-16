@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>走行軌跡レコーダー（OpenStreetMap版）</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--tx:#1b2430;--sub:#6b7785;--ac:#e8453c;--ok:#1f9d63;--bd:#dde3ea}
+@media (prefers-color-scheme:dark){:root{--bg:#12171d;--card:#1c242d;--tx:#e8edf2;--sub:#93a0ad;--bd:#2c3743}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:-apple-system,"Hiragino Sans","Yu Gothic",Meiryo,sans-serif;max-width:680px;margin:0 auto;padding:12px;padding-top:max(12px,env(safe-area-inset-top));padding-bottom:max(12px,env(safe-area-inset-bottom))}
+h1{font-size:18px;margin:4px 0 10px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px;margin-bottom:10px}
+#map{height:380px;border-radius:10px;z-index:0}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center}
+.stats b{display:block;font-size:17px}.stats span{font-size:11px;color:var(--sub)}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+button{flex:1;min-width:90px;padding:13px 8px;border:0;border-radius:10px;font-size:15px;font-weight:700;color:#fff;background:var(--ac)}
+button.g{background:var(--ok)}button.s{background:var(--sub)}button:disabled{opacity:.4}
+label{font-size:12px;color:var(--sub);display:flex;align-items:center;gap:6px;margin-top:10px}
+#st{font-size:12px;color:var(--sub);margin:6px 2px 0}
+.row{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--bd);font-size:13px}
+.row:last-child{border:0}.row button{flex:none;min-width:0;padding:6px 10px;font-size:12px}
+textarea{width:100%;height:80px;font-size:11px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:8px}
+.mk{width:22px;height:22px;border-radius:50%;border:3px solid #fff;color:#fff;font:bold 11px/16px sans-serif;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+.me{width:18px;height:18px;border-radius:50%;background:#2a6ff0;border:3px solid #fff;box-shadow:0 0 0 4px rgba(42,111,240,.3)}
+</style>
+</head>
+<body>
+<h1>🛰️ 走行軌跡レコーダー</h1>
+<div class="card">
+  <div id="map"></div>
+  <div id="st">待機中（「記録開始」を押すと位置情報の許可を求められます）</div>
+  <label><input type="checkbox" id="follow" checked> 現在地を自動で追う</label>
+</div>
+<div class="card stats">
+  <div><b id="d">0.00</b><span>距離 km</span></div>
+  <div><b id="t">00:00</b><span>時間</span></div>
+  <div><b id="v">0.0</b><span>速度 km/h</span></div>
+  <div><b id="a">0.0</b><span>平均 km/h</span></div>
+</div>
+<div class="card">
+  <div class="btns">
+    <button id="go" class="g">▶ 記録開始</button>
+    <button id="pa" class="s" disabled>⏸ 一時停止</button>
+    <button id="sv" disabled>■ 保存して終了</button>
+  </div>
+</div>
+<div class="card"><b style="font-size:14px">保存した軌跡</b><div id="list"></div>
+  <div id="gpxbox" style="display:none;margin-top:8px"><textarea id="gpx" readonly></textarea><div style="font-size:11px;color:var(--sub)">GPX形式。全選択してコピーできます。</div></div>
+</div>
+<div style="font-size:11px;color:var(--sub);text-align:center">地図データ © OpenStreetMap contributors</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function(){
+var $=function(i){return document.getElementById(i)};
+var map=L.map('map',{zoomControl:true}).setView([35.681,139.767],14);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);
+var line=L.polyline([],{color:'#e8453c',weight:6,opacity:.9,lineJoin:'round'}).addTo(map);
+var me=null,startM=null,endM=null;
+var pts=[],wid=null,running=false,paused=false,dist=0,elapsed=0,lastTick=0,speed=0,timer=null,viewing=false;
+function icon(c,t,cls){return L.divIcon({className:'',html:'<div class="mk" style="background:'+c+'">'+t+'</div>',iconSize:[22,22],iconAnchor:[11,11]})}
+function hav(a,b){var R=6371000,r=Math.PI/180,dl=(b.lat-a.lat)*r,dn=(b.lon-a.lon)*r;
+var x=Math.sin(dl/2)*Math.sin(dl/2)+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dn/2)*Math.sin(dn/2);
+return 2*R*Math.asin(Math.sqrt(x))}
+function fmt(s){s=Math.floor(s);var h=Math.floor(s/3600),m=Math.floor(s%3600/60),c=s%60,p=function(n){return n<10?'0'+n:n};
+return (h?h+':':'')+p(m)+':'+p(c)}
+function upd(){
+$('d').textContent=(dist/1000).toFixed(2);$('t').textContent=fmt(elapsed);$('v').textContent=speed.toFixed(1);
+$('a').textContent=elapsed>0?(dist/elapsed*3.6).toFixed(1):'0.0'}
+function tick(){var n=Date.now();if(running&&!paused)elapsed+=(n-lastTick)/1000;lastTick=n;upd()}
+function clearMarks(){[startM,endM,me].forEach(function(m){if(m)map.removeLayer(m)});startM=endM=me=null}
+function show(list,fit){
+var ll=list.map(function(p){return [p.lat,p.lon]});line.setLatLngs(ll);
+if(startM){map.removeLayer(startM);startM=null}if(endM){map.removeLayer(endM);endM=null}
+if(ll.length){startM=L.marker(ll[0],{icon:icon('#1f9d63','S')}).addTo(map);
+if(!running)endM=L.marker(ll[ll.length-1],{icon:icon('#e8453c','G')}).addTo(map);
+if(fit&&ll.length>1)map.fitBounds(line.getBounds(),{padding:[30,30]})}}
+function onPos(p){
+if(paused)return;
+var c=p.coords;if(c.accuracy>50){$('st').textContent='精度が低いため待機中（±'+Math.round(c.accuracy)+'m）';return}
+var q={lat:c.latitude,lon:c.longitude,t:p.timestamp};
+var ll=[q.lat,q.lon];
+if(!me)me=L.marker(ll,{icon:L.divIcon({className:'',html:'<div class="me"></div>',iconSize:[18,18],iconAnchor:[9,9]})}).addTo(map);else me.setLatLng(ll);
+var l=pts[pts.length-1];
+if(l){var d=hav(l,q);if(d<Math.max(4,c.accuracy/3))return;dist+=d}
+speed=c.speed!=null&&c.speed>=0?c.speed*3.6:(l?hav(l,q)/Math.max((q.t-l.t)/1000,1)*3.6:0);
+pts.push(q);line.addLatLng(ll);
+if(pts.length===1){startM=L.marker(ll,{icon:icon('#1f9d63','S')}).addTo(map);map.setView(ll,17)}
+else if($('follow').checked)map.panTo(ll);
+$('st').textContent='記録中… 精度 ±'+Math.round(c.accuracy)+'m ／ '+pts.length+'点';upd()}
+function onErr(e){var m={1:'位置情報が許可されていません。ブラウザ設定をご確認ください。',2:'位置を取得できません。',3:'取得がタイムアウトしました。'};
+$('st').textContent=m[e.code]||e.message}
+$('go').onclick=function(){
+if(!navigator.geolocation){$('st').textContent='このブラウザはGPSに対応していません';return}
+if(running)return;
+clearMarks();line.setLatLngs([]);
+pts=[];dist=0;elapsed=0;speed=0;running=true;paused=false;lastTick=Date.now();
+wid=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:0,timeout:20000});
+timer=setInterval(tick,1000);
+$('go').disabled=true;$('pa').disabled=false;$('sv').disabled=false;$('st').textContent='GPS取得中…'};
+$('pa').onclick=function(){paused=!paused;$('pa').textContent=paused?'▶ 再開':'⏸ 一時停止';$('st').textContent=paused?'一時停止中':'記録中…'};
+$('sv').onclick=function(){
+if(wid!=null)navigator.geolocation.clearWatch(wid);clearInterval(timer);
+running=false;paused=false;$('pa').textContent='⏸ 一時停止';$('go').disabled=false;$('pa').disabled=true;$('sv').disabled=true;
+if(me){map.removeLayer(me);me=null}
+if(pts.length>1){var list=load();list.unshift({id:Date.now(),dist:dist,time:elapsed,pts:pts});store(list.slice(0,20));renderList()}
+$('st').textContent=pts.length>1?'保存しました':'記録点が少ないため保存しませんでした';show(pts,true)};
+function load(){try{return JSON.parse(localStorage.getItem('gpstracks_osm')||'[]')}catch(e){return []}}
+function store(l){try{localStorage.setItem('gpstracks_osm',JSON.stringify(l))}catch(e){$('st').textContent='保存に失敗しました（容量不足の可能性）'}}
+function gpx(t){var s='<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="track-recorder"><trk><name>'+new Date(t.id).toLocaleString('ja-JP')+'</name><trkseg>\n';
+t.pts.forEach(function(p){s+='<trkpt lat="'+p.lat+'" lon="'+p.lon+'"><time>'+new Date(p.t).toISOString()+'</time></trkpt>\n'});
+return s+'</trkseg></trk></gpx>'}
+function renderList(){
+var l=load(),el=$('list');el.innerHTML='';
+if(!l.length){el.innerHTML='<div class="row" style="color:var(--sub)">まだありません</div>';return}
+l.forEach(function(t){
+var r=document.createElement('div');r.className='row';
+var i=document.createElement('div');i.innerHTML=new Date(t.id).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+'<br><span style="color:var(--sub)">'+(t.dist/1000).toFixed(2)+' km ／ '+fmt(t.time)+'</span>';
+var bs=document.createElement('div');bs.style.cssText='display:flex;gap:6px;align-items:center';
+[['表示',function(){if(running)return;pts=t.pts;dist=t.dist;elapsed=t.time;speed=0;show(pts,true);upd();$('st').textContent='保存した軌跡を表示中';window.scrollTo(0,0)}],
+['GPX',function(){$('gpxbox').style.display='block';$('gpx').value=gpx(t);$('gpx').select()}],
+['削除',function(){store(load().filter(function(x){return x.id!==t.id}));renderList()}]].forEach(function(b){
+var bt=document.createElement('button');bt.textContent=b[0];bt.className='s';bt.onclick=b[1];bs.appendChild(bt)});
+r.appendChild(i);r.appendChild(bs);el.appendChild(r)})}
+renderList();
+// 起動時に現在地へ移動（失敗しても無視）
+if(navigator.geolocation)navigator.geolocation.getCurrentPosition(function(p){if(!running)map.setView([p.coords.latitude,p.coords.longitude],15)},function(){},{timeout:8000});
+})();
+</script>
+</body>
+</html>
