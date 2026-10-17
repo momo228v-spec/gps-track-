@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>走行軌跡ナビ</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--tx:#1b2430;--sub:#6b7785;--ac:#e8453c;--ok:#1f9d63;--bd:#dde3ea}
+@media (prefers-color-scheme:dark){:root{--bg:#12171d;--card:#1c242d;--tx:#e8edf2;--sub:#93a0ad;--bd:#2c3743}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:-apple-system,"Hiragino Sans","Yu Gothic",Meiryo,sans-serif;max-width:680px;margin:0 auto;padding:12px;padding-top:max(12px,env(safe-area-inset-top));padding-bottom:max(12px,env(safe-area-inset-bottom))}
+h1{font-size:18px;margin:4px 0 10px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px;margin-bottom:10px}
+#wrap{position:relative;height:420px;overflow:hidden;border-radius:10px;background:#ddd;isolation:isolate}
+#map{position:absolute;left:0;top:0;width:100%;height:100%}
+#north{position:absolute;top:10px;left:10px;width:36px;height:36px;border-radius:50%;background:#fff;box-shadow:0 1px 5px rgba(0,0,0,.5);z-index:5;pointer-events:none}
+#north svg{display:block}
+.zb{position:absolute;right:10px;top:10px;z-index:5;display:flex;flex-direction:column;gap:6px}
+.zb button{min-width:0;width:42px;height:42px;padding:0;border-radius:10px;font-size:22px;line-height:1;background:#fff;color:#222;box-shadow:0 1px 5px rgba(0,0,0,.5)}
+.lb{position:absolute;right:10px;bottom:10px;z-index:5;min-width:0;width:48px;height:48px;padding:0;border-radius:50%;background:#fff;color:#2a6ff0;box-shadow:0 1px 6px rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center}
+.lb.off{background:#2a6ff0;color:#fff}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;text-align:center}
+.stats b{display:block;font-size:17px}.stats span{font-size:11px;color:var(--sub)}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+button{flex:1;min-width:90px;padding:13px 8px;border:0;border-radius:10px;font-size:15px;font-weight:700;color:#fff;background:var(--ac)}
+button.g{background:var(--ok)}button.s{background:var(--sub)}button:disabled{opacity:.4}
+label span{white-space:nowrap}
+label{font-size:13px;color:var(--tx);display:flex;align-items:center;gap:8px;margin-top:10px}
+select{flex:1;min-width:0;width:100%;padding:8px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--tx);font-size:13px}
+#st{font-size:12px;color:var(--sub);margin:6px 2px 0}
+#attr{font-size:10px;color:var(--sub);margin-top:8px}
+#attr a{color:inherit}
+.note{font-size:11px;color:var(--sub);margin-top:6px}
+.row{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--bd);font-size:13px}
+.row:last-child{border:0}.row button{flex:none;min-width:0;padding:6px 10px;font-size:12px}
+textarea{width:100%;height:80px;font-size:11px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:8px}
+.mk{width:22px;height:22px;border-radius:50%;border:3px solid #fff;color:#fff;font:bold 11px/16px sans-serif;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+.meb{width:34px;height:34px;position:relative}
+.meb .dot{position:absolute;left:8px;top:8px;width:18px;height:18px;border-radius:50%;background:#2a6ff0;border:3px solid #fff;box-shadow:0 0 0 4px rgba(42,111,240,.3)}
+.meb svg{display:none;position:absolute;left:0;top:0;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))}
+.meb.hd .dot{display:none}.meb.hd svg{display:block}
+.sigmk{width:26px;height:26px;border-radius:50%;background:#fff;border:2px solid #2b2f36;font-size:15px;line-height:22px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.5);pointer-events:none}
+.sigmk.p{background:#1f9d63;border-color:#fff;color:#fff;font-weight:700;border-radius:8px;font-size:14px}
+.hidesig .sigmk{display:none}
+.idle{width:18px;height:18px;border-radius:50%;background:#2a6ff0;border:3px solid #fff;box-shadow:0 0 0 4px rgba(42,111,240,.3)}
+</style>
+</head>
+<body>
+<h1>🧭 走行軌跡ナビ</h1>
+<div class="card">
+  <div id="wrap">
+    <div id="map"></div>
+    <div id="north"><svg viewBox="0 0 36 36" width="36" height="36"><path d="M18 4 L24 19 L18 16 L12 19 Z" fill="#e8453c"/><path d="M18 32 L24 19 L18 16 L12 19 Z" fill="#999"/></svg></div>
+    <div class="zb"><button id="zi">＋</button><button id="zo">－</button></div>
+    <button id="loc" class="lb" aria-label="現在地に戻る"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg></button>
+  </div>
+  <div id="st">待機中（「記録開始」を押すと位置情報の許可を求められます）</div>
+  <input type="checkbox" id="follow" checked hidden>
+  <label><input type="checkbox" id="hup"> 進行方向を画面の上にする（現在地を常に追う）</label>
+  <label><span>地図の種類</span><select id="lyr"></select></label>
+  <div class="note" id="sigst">信号機（🚥）と押しボタン式（緑の「歩」）は、常に表示されます。一方通行の矢印（青）は、生活道路と細い道だけに表示されます。</div>
+  <div class="note" id="note"></div>
+  <div id="attr"></div>
+</div>
+<div class="card">
+  <div class="btns">
+    <button id="go" class="g">▶ 記録開始</button>
+    <button id="pa" class="s" disabled>⏸ 一時停止</button>
+    <button id="sv" disabled>■ 保存して終了</button>
+  </div>
+</div>
+<div class="card stats">
+  <div><b id="t">00:00</b><span>時間</span></div>
+  <div><b id="v">0.0</b><span>速度 km/h</span></div>
+  <div><b id="a">0.0</b><span>平均 km/h</span></div>
+</div>
+<div class="card"><b style="font-size:14px">保存した軌跡</b><div id="list"></div>
+  <div id="gpxbox" style="display:none;margin-top:8px"><textarea id="gpx" readonly></textarea><div style="font-size:11px;color:var(--sub)">GPX形式。全選択してコピーできます。</div></div>
+</div>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+(function(){
+var $=function(i){return document.getElementById(i)};
+function lsGet(k,d){try{var v=localStorage.getItem(k);return v==null?d:v}catch(e){return d}}
+function lsSet(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+
+/* ---------- 地図の種類 ---------- */
+var ofm='© <a href="https://openfreemap.org">OpenFreeMap</a> © OpenMapTiles データ © OpenStreetMap contributors';
+var gsiA='<a href="https://maps.gsi.go.jp/development/ichiran.html">地理院タイル</a>';
+var LY={
+ vlib:{n:'ベクター標準',vec:1,u:'https://tiles.openfreemap.org/styles/liberty',a:ofm},
+ vbright:{n:'ベクター 明るめ',vec:1,u:'https://tiles.openfreemap.org/styles/bright',a:ofm},
+ gphoto:{n:'地理院 航空写真',t:['https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg'],a:gsiA},
+ esri:{n:'世界の航空写真（Esri）',t:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],a:'Tiles © Esri'}
+};
+var cur=lsGet('gps_lyr2','vlib');if(!LY[cur])cur='vlib';
+function styleFor(k){
+  var l=LY[k];if(l.vec)return l.u;
+  return {version:8,sources:{r:{type:'raster',tiles:l.t,tileSize:256,maxzoom:18,attribution:l.a}},layers:[{id:'r',type:'raster',source:'r'}]};
+}
+function updInfo(){
+  $('attr').innerHTML='地図の出典：'+LY[cur].a+'　信号機・矢印：© OpenStreetMap contributors';
+  $('note').textContent=LY[cur].vec?'':'航空写真には、地名や道路名などの文字は入りません。';
+}
+Object.keys(LY).forEach(function(k){var o=document.createElement('option');o.value=k;o.textContent=LY[k].n;$('lyr').appendChild(o)});
+$('lyr').value=cur;updInfo();
+
+var map=new maplibregl.Map({container:'map',style:styleFor(cur),center:[139.767,35.681],zoom:15,attributionControl:false,maxPitch:0,pitchWithRotate:false,dragRotate:true});
+$('lyr').onchange=function(){cur=$('lyr').value;lsSet('gps_lyr2',cur);updInfo();map.setStyle(styleFor(cur))};
+$('zi').onclick=function(){map.zoomIn()};$('zo').onclick=function(){map.zoomOut()};
+
+/* ---------- 軌跡の線 ---------- */
+var coords=[];
+function geo(){return {type:'FeatureCollection',features:coords.length>1?[{type:'Feature',properties:{},geometry:{type:'LineString',coordinates:coords}}]:[]}}
+function mkImg(w,h,draw){var c=document.createElement('canvas');c.width=w;c.height=h;var x=c.getContext('2d');draw(x,w,h);return x.getImageData(0,0,w,h)}
+function addIcons(){
+  if(!map.hasImage('arrow1'))map.addImage('arrow1',mkImg(36,36,function(x){
+    x.beginPath();x.moveTo(4,12);x.lineTo(20,12);x.lineTo(20,5);x.lineTo(33,18);x.lineTo(20,31);x.lineTo(20,24);x.lineTo(4,24);x.closePath();
+    x.fillStyle='#1d4ed8';x.fill();x.lineWidth=2.5;x.strokeStyle='#fff';x.stroke()
+  }),{pixelRatio:2});
+}
+function vecSrc(){var ss=map.getStyle().sources;for(var k in ss){if(ss[k].type==='vector')return k}return null}
+/* 地図に最初から入っている一方通行の矢印は隠し、生活道路だけに自前の矢印を出す */
+function hideBuiltinOneway(){
+  try{map.getStyle().layers.forEach(function(l){
+    if(l.id==='ow1'||l.id==='ow2'||l.type!=='symbol')return;
+    var ic=l.layout&&l.layout['icon-image']?JSON.stringify(l.layout['icon-image']):'';
+    if(/oneway|arrow/i.test(l.id)||/oneway|arrow/i.test(ic)||l['source-layer']==='transportation')map.setLayoutProperty(l.id,'visibility','none');
+  })}catch(e){}
+}
+function addOverlay(){
+  try{addIcons()}catch(e){}
+  var vs=null;try{vs=vecSrc()}catch(e){}
+  if(!vs){try{if(!map.getSource('ofm'))map.addSource('ofm',{type:'vector',url:'https://tiles.openfreemap.org/planet'});vs='ofm'}catch(e){}}
+  if(vs&&!map.getLayer('ow1')){
+    try{
+      var cls=['all',['in',['get','class'],['literal',['minor','service']]],['!',['in',['get','service'],['literal',['parking_aisle','driveway']]]]];
+      var lay={'symbol-placement':'line','symbol-spacing':70,'icon-image':'arrow1','icon-size':0.8,'icon-rotation-alignment':'map','icon-allow-overlap':true,'icon-ignore-placement':true};
+      map.addLayer({id:'ow1',type:'symbol',source:vs,'source-layer':'transportation',minzoom:13,filter:['all',['==',['get','oneway'],1],cls],layout:lay});
+      map.addLayer({id:'ow2',type:'symbol',source:vs,'source-layer':'transportation',minzoom:13,filter:['all',['==',['get','oneway'],-1],cls],layout:Object.assign({},lay,{'icon-rotate':180})});
+    }catch(e){}
+  }
+  if(vs)hideBuiltinOneway();
+  if(!map.getSource('track'))map.addSource('track',{type:'geojson',data:geo()});
+  if(!map.getLayer('track-c'))map.addLayer({id:'track-c',type:'line',source:'track',layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':'#ffffff','line-width':9,'line-opacity':.9}});
+  if(!map.getLayer('track'))map.addLayer({id:'track',type:'line',source:'track',layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':'#e8453c','line-width':6}});
+}
+/* ---------- 信号機（OpenStreetMap / Overpass）: 🚥 と 押しボタン式「歩」 ---------- */
+var CELL=0.02,sigCells={},sigTimer=null,sigFeat={},sigFail=0,sigBusy=0;
+var OVP=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
+function sigMsg(t){var e=$('sigst');if(e)e.textContent=t}
+function sigQuery(b){
+  var bb='('+b.s.toFixed(5)+','+b.w.toFixed(5)+','+b.n.toFixed(5)+','+b.e.toFixed(5)+')';
+  return '[out:json][timeout:25];('+
+   'node["highway"="traffic_signals"]'+bb+';'+
+   'node["crossing"="traffic_signals"]'+bb+';'+
+   'node["crossing:signals"="yes"]'+bb+';'+
+   'node["button_operated"="yes"]["highway"~"crossing|traffic_signals"]'+bb+';'+
+   ');out body;';
+}
+function fetchOvp(q,n){
+  return fetch(OVP[n]+'?data='+encodeURIComponent(q)).then(function(r){if(!r.ok)throw new Error('ovp '+r.status);return r.json()})
+   .catch(function(e){if(n+1<OVP.length)return fetchOvp(q,n+1);throw e});
+}
+function syncSigZoom(){map.getContainer().classList.toggle('hidesig',map.getZoom()<14)}
+map.on('zoom',syncSigZoom);
+function loadSigBox(S,W,N,E){
+  if(sigBusy||Date.now()-sigFail<20000)return;
+  var i0=Math.floor(S/CELL),i1=Math.floor(N/CELL),j0=Math.floor(W/CELL),j1=Math.floor(E/CELL);
+  if((i1-i0+1)*(j1-j0+1)>30)return;
+  var miss=[],i,j;
+  for(i=i0;i<=i1;i++)for(j=j0;j<=j1;j++){if(!sigCells[i+'_'+j])miss.push([i,j])}
+  if(!miss.length)return;
+  var b={s:1e9,w:1e9,n:-1e9,e:-1e9};
+  miss.forEach(function(c){sigCells[c[0]+'_'+c[1]]=1;
+    b.s=Math.min(b.s,c[0]*CELL);b.n=Math.max(b.n,(c[0]+1)*CELL);b.w=Math.min(b.w,c[1]*CELL);b.e=Math.max(b.e,(c[1]+1)*CELL)});
+  sigBusy=1;sigMsg('信号機データを取得中…');
+  fetchOvp(sigQuery(b),0).then(function(d){
+    (d.elements||[]).forEach(function(el){
+      if(el.type!=='node'||sigFeat[el.id])return;
+      var t=el.tags||{},k=t.highway==='traffic_signals'?'v':'p';
+      var e=document.createElement('div');e.className='sigmk '+k;e.textContent=k==='v'?'🚥':'歩';
+      sigFeat[el.id]=new maplibregl.Marker({element:e,anchor:'center'}).setLngLat([el.lon,el.lat]).addTo(map);
+    });
+    sigBusy=0;sigMsg('信号機 '+Object.keys(sigFeat).length+'件を表示中（OpenStreetMapの登録情報）');
+  }).catch(function(){
+    sigBusy=0;sigFail=Date.now();
+    miss.forEach(function(c){delete sigCells[c[0]+'_'+c[1]]});
+    sigMsg('信号機データを取得できませんでした。通信状況をご確認ください（しばらくして再試行します）');
+  });
+}
+function updSignals(){
+  syncSigZoom();
+  if(map.getZoom()<14){sigMsg('信号機は、もう少し拡大すると表示されます');return}
+  var bd=map.getBounds();loadSigBox(bd.getSouth(),bd.getWest(),bd.getNorth(),bd.getEast());
+}
+/* 現在地の周辺は、地図を動かさなくても先に読み込んでおく */
+var lastPre=null;
+function prefetchSig(l){
+  if(lastPre&&Math.abs(lastPre[0]-l[0])<0.004&&Math.abs(lastPre[1]-l[1])<0.004)return;
+  lastPre=l;loadSigBox(l[1]-0.015,l[0]-0.015,l[1]+0.015,l[0]+0.015);
+}
+map.on('moveend',function(){clearTimeout(sigTimer);sigTimer=setTimeout(updSignals,600)});
+map.on('load',function(){setTimeout(updSignals,1500)});
+function setTrack(){var s=map.getSource('track');if(s)s.setData(geo())}
+function jaLabels(){
+  if(!LY[cur].vec)return;
+  try{map.getStyle().layers.forEach(function(l){
+    if(l.type!=='symbol'||!l.layout||!l.layout['text-field'])return;
+    if(JSON.stringify(l.layout['text-field']).indexOf('name')<0)return;
+    map.setLayoutProperty(l.id,'text-field',['coalesce',['get','name:ja'],['get','name'],['get','name:latin']]);
+  })}catch(e){}
+}
+map.on('style.load',function(){addOverlay();jaLabels()});
+
+/* ---------- 状態 ---------- */
+var pts=[],wid=null,running=false,paused=false,dist=0,elapsed=0,lastTick=0,speed=0,timer=null;
+var hup=lsGet('gps_hup','0')==='1',hasHd=false,rot=0,viewing=false,prev=null,firstFix=false;
+var me=null,startM=null,endM=null,idleM=null,lastLL=null;
+$('hup').checked=hup;
+var northEl=$('north');
+
+/* ---------- マーカー ---------- */
+function mkMarker(el,l){return new maplibregl.Marker({element:el,anchor:'center'}).setLngLat(l).addTo(map)}
+function pinEl(c,t){var d=document.createElement('div');d.className='mk';d.style.background=c;d.textContent=t;return d}
+function meEl(){var d=document.createElement('div');
+  d.innerHTML='<div id="meb" class="meb'+(hasHd?' hd':'')+'"><div class="dot"></div><svg id="arrow" viewBox="0 0 34 34" width="34" height="34"><path d="M17 3 L27 29 L17 23 L7 29 Z" fill="#2a6ff0" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/></svg></div>';
+  return d}
+function clearMarks(){[startM,endM].forEach(function(m){if(m)m.remove()});startM=endM=null}
+function updArrow(){var a=$('arrow');if(a)a.style.transform='rotate('+(rot-map.getBearing())+'deg)'}
+map.on('rotate',function(){northEl.style.transform='rotate('+(-map.getBearing())+'deg)';updArrow()});
+
+/* ---------- 回転表示 ---------- */
+function rotating(){return hup&&wid!=null&&!viewing}
+function applyRot(){
+  var b=rotating()?rot:0;
+  if(Math.abs(((map.getBearing()-b)%360+540)%360-180)>0.5)map.rotateTo(b,{duration:350});
+  updArrow();
+}
+function layout(){map.resize();applyRot()}
+function setHeading(h){
+  if(!hasHd){hasHd=true;rot=h}
+  else{var d=((h-rot)%360+540)%360-180;rot+=d*0.5}
+  var b=$('meb');if(b)b.className='meb hd';
+  applyRot();
+}
+function bearing(a,b){var r=Math.PI/180,f1=a.lat*r,f2=b.lat*r,dl=(b.lon-a.lon)*r;
+var y=Math.sin(dl)*Math.cos(f2),x=Math.cos(f1)*Math.sin(f2)-Math.sin(f1)*Math.cos(f2)*Math.cos(dl);
+return (Math.atan2(y,x)/r+360)%360}
+$('hup').onchange=function(){hup=$('hup').checked;lsSet('gps_hup',hup?'1':'0');
+  if(hup){viewing=false;$('follow').checked=true;syncLoc();if(!running&&navigator.geolocation)$('st').textContent='現在地を取得中…'}
+  ensureWatch();layout()};
+window.addEventListener('resize',layout);
+
+/* ---------- 計算・表示 ---------- */
+function hav(a,b){var R=6371000,r=Math.PI/180,dl=(b.lat-a.lat)*r,dn=(b.lon-a.lon)*r;
+var x=Math.sin(dl/2)*Math.sin(dl/2)+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dn/2)*Math.sin(dn/2);
+return 2*R*Math.asin(Math.sqrt(x))}
+function fmt(s){s=Math.floor(s);var h=Math.floor(s/3600),m=Math.floor(s%3600/60),c=s%60,p=function(n){return n<10?'0'+n:n};
+return (h?h+':':'')+p(m)+':'+p(c)}
+function upd(){
+$('t').textContent=fmt(elapsed);$('v').textContent=speed.toFixed(1);
+$('a').textContent=elapsed>0?(dist/elapsed*3.6).toFixed(1):'0.0'}
+function tick(){var n=Date.now();if(running&&!paused)elapsed+=(n-lastTick)/1000;lastTick=n;upd()}
+function show(list,fit){
+  coords=list.map(function(p){return [p.lon,p.lat]});setTrack();
+  clearMarks();
+  if(coords.length){
+    startM=mkMarker(pinEl('#1f9d63','S'),coords[0]);
+    if(!running)endM=mkMarker(pinEl('#e8453c','G'),coords[coords.length-1]);
+    if(fit&&coords.length>1){var b=new maplibregl.LngLatBounds(coords[0],coords[0]);coords.forEach(function(c){b.extend(c)});
+      map.fitBounds(b,{padding:40,bearing:0,maxZoom:18,duration:600})}
+  }
+}
+function followTo(l){
+  var pan=!viewing&&$('follow').checked;
+  if(pan)map.easeTo({center:l,bearing:rotating()?rot:map.getBearing(),duration:500});
+  else if(rotating())map.rotateTo(rot,{duration:400});
+  return pan;
+}
+
+/* ---------- GPS ---------- */
+var GOPT={enableHighAccuracy:true,maximumAge:0,timeout:20000};
+function ensureWatch(){
+if(!navigator.geolocation)return;
+if(running||hup){if(wid==null)wid=navigator.geolocation.watchPosition(onPos,onErr,GOPT)}
+else if(wid!=null){navigator.geolocation.clearWatch(wid);wid=null;prev=null;if(me){me.remove();me=null}}
+}
+function onPos(p){
+var c=p.coords;if(c.accuracy>50){$('st').textContent='精度が低いため待機中（±'+Math.round(c.accuracy)+'m）';return}
+var q={lat:c.latitude,lon:c.longitude,t:p.timestamp},l=[q.lon,q.lat];lastLL=l;prefetchSig(l);
+if(idleM){idleM.remove();idleM=null}
+if(!me){me=mkMarker(meEl(),l);me.getElement().style.zIndex=10;updArrow()}else me.setLngLat(l);
+var hd=null,mv=prev?hav(prev,q):0;
+if(c.heading!=null&&!isNaN(c.heading)&&(c.speed==null||c.speed>0.8))hd=c.heading;
+else if(prev&&mv>=6)hd=bearing(prev,q);
+if(!prev||mv>=6)prev=q;
+if(hd!=null)setHeading(hd);
+var hdTxt=hasHd?' ／ 向き '+Math.round(((rot%360)+360)%360)+'°':'';
+var pan;
+if(!firstFix){firstFix=true;pan=!viewing;if(pan)map.jumpTo({center:l,zoom:running?17:16,bearing:rotating()?rot:0})}
+else pan=followTo(l);
+if(running&&!paused){
+  var lp=pts[pts.length-1];
+  if(lp){var d=hav(lp,q);if(d<Math.max(4,c.accuracy/3)){$('st').textContent='記録中… 精度 ±'+Math.round(c.accuracy)+'m'+hdTxt;return}dist+=d}
+  speed=c.speed!=null&&c.speed>=0?c.speed*3.6:(lp?hav(lp,q)/Math.max((q.t-lp.t)/1000,1)*3.6:0);
+  pts.push(q);coords.push(l);setTrack();
+  if(pts.length===1){startM=mkMarker(pinEl('#1f9d63','S'),l);if(pan)map.easeTo({center:l,zoom:Math.max(map.getZoom(),17),duration:400})}
+  $('st').textContent='記録中… 精度 ±'+Math.round(c.accuracy)+'m ／ '+pts.length+'点'+hdTxt;upd();
+}else{
+  $('v').textContent=(c.speed!=null&&c.speed>=0?c.speed*3.6:0).toFixed(1);
+  $('st').textContent=(running&&paused?'一時停止中':'現在地を表示中')+' ／ 精度 ±'+Math.round(c.accuracy)+'m'+hdTxt;
+}
+}
+function onErr(e){var m={1:'位置情報が許可されていません。ブラウザ設定をご確認ください。',2:'位置を取得できません。',3:'取得がタイムアウトしました。'};
+$('st').textContent=m[e.code]||e.message}
+$('go').onclick=function(){
+if(!navigator.geolocation){$('st').textContent='このブラウザはGPSに対応していません';return}
+if(running)return;
+viewing=false;if(idleM){idleM.remove();idleM=null}
+clearMarks();coords=[];setTrack();
+pts=[];dist=0;elapsed=0;speed=0;running=true;paused=false;lastTick=Date.now();
+ensureWatch();layout();
+timer=setInterval(tick,1000);
+$('go').disabled=true;$('pa').disabled=false;$('sv').disabled=false;$('st').textContent='GPS取得中…'};
+$('pa').onclick=function(){paused=!paused;$('pa').textContent=paused?'▶ 再開':'⏸ 一時停止';$('st').textContent=paused?'一時停止中':'記録中…'};
+$('sv').onclick=function(){
+clearInterval(timer);
+running=false;paused=false;$('pa').textContent='⏸ 一時停止';$('go').disabled=false;$('pa').disabled=true;$('sv').disabled=true;
+if(pts.length>1){var list=load();list.unshift({id:Date.now(),dist:dist,time:elapsed,pts:pts});store(list.slice(0,20));renderList()}
+viewing=true;ensureWatch();layout();
+$('st').textContent=pts.length>1?'保存しました（◎ボタンで現在地に戻ります）':'記録点が少ないため保存しませんでした';show(pts,true)};
+
+/* ---------- 保存 ---------- */
+function load(){try{return JSON.parse(lsGet('gpstracks_osm','[]'))}catch(e){return []}}
+function store(l){lsSet('gpstracks_osm',JSON.stringify(l))}
+function gpx(t){var s='<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="track-recorder"><trk><name>'+new Date(t.id).toLocaleString('ja-JP')+'</name><trkseg>\n';
+t.pts.forEach(function(p){s+='<trkpt lat="'+p.lat+'" lon="'+p.lon+'"><time>'+new Date(p.t).toISOString()+'</time></trkpt>\n'});
+return s+'</trkseg></trk></gpx>'}
+function renderList(){
+var l=load(),el=$('list');el.innerHTML='';
+if(!l.length){el.innerHTML='<div class="row" style="color:var(--sub)">まだありません</div>';return}
+l.forEach(function(t){
+var r=document.createElement('div');r.className='row';
+var i=document.createElement('div');i.innerHTML=new Date(t.id).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+'<br><span style="color:var(--sub)">'+fmt(t.time)+'</span>';
+var bs=document.createElement('div');bs.style.cssText='display:flex;gap:6px;align-items:center';
+[['表示',function(){if(running)return;viewing=true;layout();pts=t.pts;dist=t.dist;elapsed=t.time;speed=0;show(pts,true);upd();$('st').textContent='保存した軌跡を表示中';window.scrollTo(0,0)}],
+['GPX',function(){$('gpxbox').style.display='block';$('gpx').value=gpx(t);$('gpx').select()}],
+['削除',function(){store(load().filter(function(x){return x.id!==t.id}));renderList()}]].forEach(function(b){
+var bt=document.createElement('button');bt.textContent=b[0];bt.className='s';bt.onclick=b[1];bs.appendChild(bt)});
+r.appendChild(i);r.appendChild(bs);el.appendChild(r)})}
+
+/* ---------- 現在地に戻るボタン ---------- */
+function syncLoc(){$('loc').classList.toggle('off',!$('follow').checked)}
+$('follow').onchange=syncLoc;
+map.on('dragstart',function(){$('follow').checked=false;syncLoc()});
+function goTo(l){
+  if(wid==null){
+    if(idleM)idleM.setLngLat(l);
+    else{var e=document.createElement('div');e.className='idle';idleM=mkMarker(e,l)}
+  }
+  map.easeTo({center:l,zoom:Math.max(map.getZoom(),16),bearing:rotating()?rot:0,duration:500});
+}
+$('loc').onclick=function(){
+  viewing=false;$('follow').checked=true;syncLoc();applyRot();
+  if(wid!=null&&lastLL){goTo(lastLL);return}
+  if(!navigator.geolocation){$('st').textContent='このブラウザはGPSに対応していません';return}
+  $('st').textContent='現在地を取得中…';
+  navigator.geolocation.getCurrentPosition(function(p){
+    lastLL=[p.coords.longitude,p.coords.latitude];goTo(lastLL);
+    $('st').textContent='現在地に移動しました（精度 ±'+Math.round(p.coords.accuracy)+'m）';
+  },onErr,{enableHighAccuracy:true,timeout:15000,maximumAge:0});
+};
+
+renderList();
+if(hup){$('follow').checked=true;syncLoc();ensureWatch();if(wid!=null)$('st').textContent='現在地を取得中…'}
+else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(function(p){if(!running&&wid==null){lastLL=[p.coords.longitude,p.coords.latitude];map.jumpTo({center:lastLL,zoom:16})}},function(){},{timeout:8000});
+})();
+</script>
+</body>
+</html>
