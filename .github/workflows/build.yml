@@ -11,10 +11,6 @@ jobs:
       - run: npm install
       - run: npx cap init "GPS軌跡ロガー" "com.momo228v.gpsapp" --web-dir=.
       - run: npx cap add android
-      - name: Open background settings for Android
-        run: |
-          sed -i '/<\/application>/i <service android:name="com.equimms.cordova.geolocation.ClearNotificationService" android:exported="false" \/><service android:name="com.equimms.cordova.geolocation.ForegroundService" android:foregroundServiceType="location" android:exported="false" \/>' android/app/src/main/AndroidManifest.xml
-          sed -i '/<\/manifest>/i <uses-permission android:name="android.permission.FOREGROUND_SERVICE" \/><uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" \/>' android/app/src/main/AndroidManifest.xml
       - run: npx cap sync android
       - name: Setup Java
         uses: actions/setup-java@v4
