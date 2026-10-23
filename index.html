@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="viewport" content="width=device-width, initial-scale=1.0">
+    <title>走行軌跡レコーダー</title>
+    <style>
+        :root{--bg:#f4f6f9;}
+        body{margin:0;padding:20px;font-family:sans-serif;background:var(--bg);}
+        h1{font-size:18px;text-align:center;}
+        #map{height:380px;border-radius:10px;margin-bottom:15px;}
+        .btns{display:flex;gap:8px;margin-bottom:15px;}
+        button{flex:1;padding:13px;font-size:15px;font-weight:bold;border:none;border-radius:8px;color:#fff;}
+        .start{background:#007bff;}
+        .stop{background:#dc3545;}
+    </style>
+</head>
+<body>
+    <h1>走行軌跡レコーダー</h1>
+    <div id="map"></div>
+    <div class="btns">
+        <button class="start" onclick="startTracking()">計測スタート</button>
+        <button class="stop" onclick="stopTracking()">ストップ</button>
+    </div>
+    <script>
+        console.log("アプリが起動しました");
+        // ここにあなたのOpenFreeMapやGPS計測のJavaScriptロジックが組み込まれます
+    </script>
+</body>
+</html>
